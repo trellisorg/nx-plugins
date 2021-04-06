@@ -1,4 +1,4 @@
-import { merge, mergeStates, MergeStrategy } from './shared';
+import { merge, mergeStates, MergeStrategy } from './utils';
 
 describe('Utils', () => {
     describe('merge', () => {

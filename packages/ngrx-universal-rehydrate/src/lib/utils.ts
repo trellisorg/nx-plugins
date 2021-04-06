@@ -1,4 +1,3 @@
-import { InjectionToken } from '@angular/core';
 import { makeStateKey, StateKey } from '@angular/platform-browser';
 
 export const enum MergeStrategy {
@@ -7,30 +6,22 @@ export const enum MergeStrategy {
     MERGE_UNDER = 'mergeUnder',
 }
 
-export const defaultNgrxUniversalHydrateConfig: NgrxUniversalHydrateConfig = {
+export const defaultRehydrationRootConfig: RehydrationRootConfig = {
     stores: undefined,
     disableWarnings: false,
     mergeStrategy: MergeStrategy.MERGE_OVER,
 };
 
-export interface NgrxUniversalHydrateConfig {
+export interface RehydrationRootConfig {
     stores: string[] | undefined;
     disableWarnings: boolean;
     mergeStrategy: MergeStrategy;
 }
 
-export const NGRX_TRANSFER_HYDRATE_CONFIG = new InjectionToken<NgrxUniversalHydrateConfig>(
-    'ngrxUniversalHydrateConfig'
-);
-
-export function createTransferStateKey<T>(
-    config: NgrxUniversalHydrateConfig
-): StateKey<T> {
+export function createTransferStateKey<T>(stores: string[]): StateKey<T> {
     return makeStateKey<T>(
         `ngrx-${
-            config.stores?.length > 0
-                ? config.stores.sort().join('-')
-                : 'full-store'
+            stores?.length > 0 ? stores.sort().join('-') : 'full-store'
         }-rehydration`
     );
 }
@@ -45,9 +36,9 @@ export function merge(over: any, under: any): any {
     );
 }
 
-export function mergeStates(
-    initial: any,
-    transfer: any,
+export function mergeStates<T, K>(
+    initial: T,
+    transfer: K,
     mergeStrategy: MergeStrategy
 ): any {
     switch (mergeStrategy) {

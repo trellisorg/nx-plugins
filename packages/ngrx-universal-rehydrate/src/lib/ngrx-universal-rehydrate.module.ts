@@ -1,100 +1,105 @@
-import { ModuleWithProviders, NgModule, PLATFORM_ID } from '@angular/core';
-import { INIT, META_REDUCERS, MetaReducer } from '@ngrx/store';
-import { isPlatformBrowser } from '@angular/common';
 import {
-    defaultNgrxUniversalHydrateConfig,
-    mergeStates,
-    NGRX_TRANSFER_HYDRATE_CONFIG,
-    NgrxUniversalHydrateConfig,
-} from './shared';
-import { NgrxUniversalHydrationService } from './ngrx-universal-hydration.service';
+    Inject,
+    ModuleWithProviders,
+    NgModule,
+    PLATFORM_ID,
+} from '@angular/core';
+import { META_REDUCERS } from '@ngrx/store';
+import {
+    createTransferStateKey,
+    defaultRehydrationRootConfig,
+    RehydrationRootConfig,
+} from './utils';
+import { TransferState } from '@angular/platform-browser';
+import { RehydrationTrackingService } from './rehydration-tracking.service';
+import { browserRehydrateReducer, hydrateMetaReducer } from './reducers';
+import { FEATURE_STORES, REHYDRATE_ROOT_CONFIG } from './tokens';
+import { RehydrationLogger } from './rehydration-logger';
+import { isPlatformServer } from '@angular/common';
 
-export function rehydrateMetaReducer(
-    platformId: Object,
-    config: NgrxUniversalHydrateConfig,
-    ngrxUniversalHydrationService: NgrxUniversalHydrationService
-): MetaReducer<unknown> {
-    const isBrowser = isPlatformBrowser(platformId);
+@NgModule({})
+export class NgrxUniversalRehydrateRootModule {
+    constructor() {}
+}
 
-    /**
-     * If we are in the browser return a meta reducer that will parse the initial state from
-     * the transfer state on INIT
-     */
-    if (isBrowser) {
-        return (reducer) => (state, action) => {
-            if (action.type === INIT) {
-                /**
-                 * Rehydrate default state based on transferred data from the server
-                 */
-                return reducer(
-                    mergeStates(
-                        state,
-                        ngrxUniversalHydrationService.readState(),
-                        config.mergeStrategy
-                    ),
-                    action
-                );
-            }
-
-            return reducer(state, action);
-        };
+@NgModule({})
+export class NgrxUniversalRehydrateFeatureModule {
+    constructor(
+        private rehydrationTrackingService: RehydrationTrackingService,
+        @Inject(FEATURE_STORES) private stores: string[],
+        @Inject(PLATFORM_ID) platformId: Object
+    ) {
+        if (isPlatformServer(platformId))
+            this.rehydrationTrackingService.addFeature(
+                createTransferStateKey(this.stores)
+            );
     }
-
-    /**
-     * If we are in the server environment return the meta reducer that will save the updated states into the transfer
-     * state based on the store slices configured.
-     */
-    return (reducer) => (state, action) => {
-        const newState = reducer(state, action);
-
-        if (newState) {
-            /**
-             * Only persist state for store slices that are configured
-             * TODO: Optimize this
-             */
-            if (config.stores?.length > 0) {
-                ngrxUniversalHydrationService.state = config.stores.reduce(
-                    (prev, cur) => ({
-                        ...prev,
-                        [cur]: newState[cur],
-                    }),
-                    {}
-                );
-            } else {
-                ngrxUniversalHydrationService.state = newState;
-            }
-
-            return newState;
-        }
-
-        return reducer(state, action);
-    };
 }
 
 @NgModule({})
 export class NgrxUniversalRehydrateModule {
     static forRoot(
-        config: Partial<NgrxUniversalHydrateConfig>
-    ): ModuleWithProviders<NgrxUniversalRehydrateModule> {
+        config: Partial<RehydrationRootConfig>
+    ): ModuleWithProviders<NgrxUniversalRehydrateRootModule> {
         return {
-            ngModule: NgrxUniversalRehydrateModule,
+            ngModule: NgrxUniversalRehydrateRootModule,
             providers: [
                 {
-                    provide: NGRX_TRANSFER_HYDRATE_CONFIG,
+                    provide: REHYDRATE_ROOT_CONFIG,
                     useValue: {
-                        ...defaultNgrxUniversalHydrateConfig,
+                        ...defaultRehydrationRootConfig,
                         ...config,
                     },
                 },
-                NgrxUniversalHydrationService,
                 {
                     provide: META_REDUCERS,
-                    deps: [
-                        PLATFORM_ID,
-                        NGRX_TRANSFER_HYDRATE_CONFIG,
-                        NgrxUniversalHydrationService,
-                    ],
-                    useFactory: rehydrateMetaReducer,
+                    deps: [PLATFORM_ID, TransferState, REHYDRATE_ROOT_CONFIG],
+                    useFactory: browserRehydrateReducer,
+                    multi: true,
+                },
+                {
+                    provide: META_REDUCERS,
+                    deps: [PLATFORM_ID, TransferState],
+                    useFactory: (platformId, _transferState) =>
+                        hydrateMetaReducer(
+                            platformId,
+                            config.stores,
+                            _transferState
+                        ),
+                    multi: true,
+                },
+                {
+                    provide: RehydrationTrackingService,
+                    useFactory: (logger, transferState, platformId) =>
+                        new RehydrationTrackingService(
+                            logger,
+                            transferState,
+                            createTransferStateKey(config.stores),
+                            platformId
+                        ),
+                    deps: [RehydrationLogger, TransferState, PLATFORM_ID],
+                },
+                RehydrationLogger,
+            ],
+        };
+    }
+
+    static forFeature(
+        stores: RehydrationRootConfig['stores']
+    ): ModuleWithProviders<NgrxUniversalRehydrateFeatureModule> {
+        return {
+            ngModule: NgrxUniversalRehydrateFeatureModule,
+            providers: [
+                {
+                    provide: META_REDUCERS,
+                    deps: [PLATFORM_ID, TransferState],
+                    useFactory: (platformId, _transferState) =>
+                        hydrateMetaReducer(platformId, stores, _transferState),
+                    multi: true,
+                },
+                {
+                    provide: FEATURE_STORES,
+                    useValue: stores,
                     multi: true,
                 },
             ],
